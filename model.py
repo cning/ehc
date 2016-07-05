@@ -47,7 +47,15 @@ class tf_base:
         self._train_step = opt.minimize(self._loss)
 
     def initVar(self):
-        self._sess.run(tf.initialize_all_variables())
+        uninitialized_vars = []
+        for var in tf.all_variables():
+            try:
+                self._sess.run(var)
+            except tf.errors.FailedPreconditionError:
+                uninitialized_vars.append(var)
+        init_new_vars_op = tf.initialize_variables(uninitialized_vars)
+        self._sess.run(init_new_vars_op)
+        #self._sess.run(tf.initialize_all_variables())
 
 class WMF(tf_base):
     def __init__(self):
@@ -134,7 +142,7 @@ class WMF(tf_base):
             cor = tf.mul(tf.cast(tf.equal(pred, self._p), tf.float32), self._c)
             self._vali_err = tf.reduce_sum(tf.mul(cor, self._mask))
 
-            self._saver = tf.train.Saver()
+            self._saver = tf.train.Saver([v for v in tf.all_variables() if v.name.find('matDecomp') != -1])
             tf.scalar_summary('training_weighted_loss_l2', self._loss)
             tf.scalar_summary('validation_weighted_loss', self._weighted_loss)
             merged = tf.merge_all_summaries()
@@ -182,42 +190,43 @@ class convNet(tf_base):
 
     def drawGraph(self, x_shape, y_shape):
         ''' for x_cat_10_day'''
-        self._x = tf.placeholder(tf.float32, shape=[None, x_shape[1], x_shape[2], x_shape[3]])
-        self._y = tf.placeholder(tf.float32, shape=[None, y_shape])
-        nA1 = 16
-        with tf.name_scope('convA1'):
-            w = self._weight_var([1, 116, x_shape[3], nA1])
-            b = self._bias_var([nA1])
-            A1a = tf.nn.relu(tf.nn.conv2d(self._x, w, \
-                strides=[1, 1, 116, 1], padding='VALID') + b)
-        nA2 = 8
-        with tf.name_scope('convA2'):
-            w = self._weight_var([3, 13, nA1, nA2])
-            b = self._bias_var([nA2])
-            A2a = tf.nn.relu(tf.nn.conv2d(A1a, w, \
-                strides=[1, 1, 1, 1], padding='SAME') + b)
-        nF1 = 128
-        self._keep_prob = tf.placeholder(tf.float32)
-        with tf.name_scope('fullyNet_drop_1'):
-            flat = tf.reshape(A2a, [-1,3*13*nA2])
-            w = self._weight_var([3*13*nA2, nF1])
-            b = self._bias_var([nF1])
-            F1a = tf.nn.relu(tf.matmul(flat, w) + b)
-            F1a_drop = tf.nn.dropout(F1a, self._keep_prob)
-        nF2 = 64
-        with tf.name_scope('fullNet_drop_2'):
-            w = self._weight_var([nF1, nF2])
-            b = self._bias_var([nF2])
-            F2a = tf.nn.relu(tf.matmul(F1a_drop, w) + b)
-            F2a_drop = tf.nn.dropout(F2a, self._keep_prob)
-        nF3 = y_shape
-        with tf.name_scope('fullNet_3'):
-            w = self._weight_var([nF2, nF3])
-            b = self._bias_var([nF3])
-            F3a = tf.nn.relu(tf.matmul(F2a_drop, w) + b)
-        self._h = F3a
-        self._loss = tf.reduce_mean((self._y-self._h)*(self._y-self._h))
-        self._saver = tf.train.Saver()
+        with tf.name_scope('convNet'):
+            self._x = tf.placeholder(tf.float32, shape=[None, x_shape[1], x_shape[2], x_shape[3]])
+            self._y = tf.placeholder(tf.float32, shape=[None, y_shape])
+            nA1 = 16
+            with tf.name_scope('convA1'):
+                w = self._weight_var([1, 116, x_shape[3], nA1])
+                b = self._bias_var([nA1])
+                A1a = tf.nn.relu(tf.nn.conv2d(self._x, w, \
+                    strides=[1, 1, 116, 1], padding='VALID') + b)
+            nA2 = 8
+            with tf.name_scope('convA2'):
+                w = self._weight_var([3, 13, nA1, nA2])
+                b = self._bias_var([nA2])
+                A2a = tf.nn.relu(tf.nn.conv2d(A1a, w, \
+                    strides=[1, 1, 1, 1], padding='SAME') + b)
+            nF1 = 128
+            self._keep_prob = tf.placeholder(tf.float32)
+            with tf.name_scope('fullyNet_drop_1'):
+                flat = tf.reshape(A2a, [-1,3*13*nA2])
+                w = self._weight_var([3*13*nA2, nF1])
+                b = self._bias_var([nF1])
+                F1a = tf.nn.relu(tf.matmul(flat, w) + b)
+                F1a_drop = tf.nn.dropout(F1a, self._keep_prob)
+            nF2 = 64
+            with tf.name_scope('fullNet_drop_2'):
+                w = self._weight_var([nF1, nF2])
+                b = self._bias_var([nF2])
+                F2a = tf.nn.relu(tf.matmul(F1a_drop, w) + b)
+                F2a_drop = tf.nn.dropout(F2a, self._keep_prob)
+            nF3 = y_shape
+            with tf.name_scope('fullNet_3'):
+                w = self._weight_var([nF2, nF3])
+                b = self._bias_var([nF3])
+                F3a = tf.nn.relu(tf.matmul(F2a_drop, w) + b)
+            self._h = F3a
+            self._loss = tf.reduce_mean((self._y-self._h)*(self._y-self._h))
+            self._saver = tf.train.Saver([v for v in tf.all_variables() if v.name.find('convNet') != -1])
 
     def _weight_var(self, shape):
         init = tf.truncated_normal(shape, stddev=0.1)
